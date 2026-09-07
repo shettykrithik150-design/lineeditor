@@ -37,10 +37,11 @@ HOW TO RUN THE CODE:
 1.
 git clone https://github.com/shettykrithik150-design/lineeditor.git
 cd lineeditor
+cd src
 2.
-gcc main.c -o main
+gcc main.c -o editor.exe
 3.
-.\main.exe
+.\editor.exe
 
 ## ✨ Features
 

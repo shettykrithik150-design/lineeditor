@@ -38,9 +38,9 @@ HOW TO RUN THE CODE:
 git clone https://github.com/shettykrithik150-design/lineeditor.git
 cd lineeditor
 2.
-gcc -Wall -Wextra -std=c11 .\src\main.c -o editor.exe
+gcc main.c -o main
 3.
-.\editor.exe
+.\main.exe
 
 ## ✨ Features
 

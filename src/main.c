@@ -1,339 +1,753 @@
-/* ============================================================
- * editor.c — A simple command-line line editor
+
+/*
+ * ============================================================
+ * editor.c - Simple Command-Line Line Editor
  *
- * Data structure: dynamic (growable) array of C strings.
- *   - char **lines   : array of pointers to heap-allocated line strings
- *   - int count      : number of lines currently stored
- *   - int capacity   : allocated size of the lines array (doubles when full)
+ * Data Structure:
+ *     Dynamic array of strings
  *
- * Why a dynamic array instead of a linked list?
- *   The most common operations here are "display everything" and
- *   "go to line N" (for insert/delete/replace/search), both of which
- *   are O(1) to index into with an array but O(n) to reach in a linked
- *   list. Insert/delete do require shifting elements (O(n)), but for a
- *   small in-memory document that cost is negligible, and we avoid the
- *   extra pointer bookkeeping a linked list would need.
+ * Core Features:
+ *     1. Insert a line
+ *     2. Delete a line
+ *     3. Display the document
  *
- * Supported commands (see HELP.md for details):
- *   insert <line#> <text>
- *   delete <line#>
- *   display
- *   save <filename>
- *   load <filename>
- *   search <word>
- *   count
- *   help
- *   quit
- * ============================================================ */
+ * Bonus Features:
+ *     4. Save / Load file
+ *     5. Search
+ *     6. Line count / Word count
+ *
+ * Commands:
+ *     insert <line_number> <text>
+ *     delete <line_number>
+ *     display
+ *     save <filename>
+ *     load <filename>
+ *     search <word or phrase>
+ *     count
+ *     help
+ *     quit
+ *
+ * Compile:
+ *     gcc -Wall -Wextra -std=c11 editor.c -o editor
+ *
+ * Run:
+ *     ./editor
+ *
+ * Or load a file automatically at startup:
+ *     ./editor document.txt
+ * ============================================================
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define INITIAL_CAPACITY 8
-#define MAX_INPUT_LEN 1024
+#define MAX_INPUT 1024
+#define MAX_FILENAME 256
+
+/* ------------------------------------------------------------
+ * Document structure
+ * ------------------------------------------------------------ */
 
 typedef struct {
-    char **lines;   /* array of heap-allocated line strings */
-    int count;      /* number of lines currently in use     */
-    int capacity;   /* allocated slots in the lines array   */
+    char **lines;
+    int count;
+    int capacity;
 } Document;
 
-/* ---------- Document lifecycle ---------- */
 
-void doc_init(Document *doc) {
-    doc->capacity = INITIAL_CAPACITY;
-    doc->count = 0;
-    doc->lines = malloc(sizeof(char *) * doc->capacity);
-    if (!doc->lines) {
-        fprintf(stderr, "Fatal: out of memory initializing document.\n");
-        exit(1);
+/* ------------------------------------------------------------
+ * Utility function
+ * ------------------------------------------------------------ */
+
+/* Remove the newline character from a string */
+void remove_newline(char *str)
+{
+    size_t len = strlen(str);
+
+    if (len > 0 && str[len - 1] == '\n') {
+        str[len - 1] = '\0';
     }
 }
 
-void doc_free(Document *doc) {
-    for (int i = 0; i < doc->count; i++) {
+
+/* Create a copy of a string using dynamic memory */
+char *copy_string(const char *text)
+{
+    char *copy = malloc(strlen(text) + 1);
+
+    if (copy == NULL) {
+        return NULL;
+    }
+
+    strcpy(copy, text);
+    return copy;
+}
+
+
+/* ------------------------------------------------------------
+ * Document initialization and cleanup
+ * ------------------------------------------------------------ */
+
+void initialize_document(Document *doc)
+{
+    doc->count = 0;
+    doc->capacity = INITIAL_CAPACITY;
+
+    doc->lines = malloc(doc->capacity * sizeof(char *));
+
+    if (doc->lines == NULL) {
+        printf("Error: Unable to allocate memory.\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+
+void free_document(Document *doc)
+{
+    int i;
+
+    for (i = 0; i < doc->count; i++) {
         free(doc->lines[i]);
     }
+
     free(doc->lines);
+
     doc->lines = NULL;
     doc->count = 0;
     doc->capacity = 0;
 }
 
-/* Grow the backing array when it's full. */
-static void doc_grow(Document *doc) {
+
+/* ------------------------------------------------------------
+ * Increase document capacity
+ * ------------------------------------------------------------ */
+
+int grow_document(Document *doc)
+{
     int new_capacity = doc->capacity * 2;
-    char **new_lines = realloc(doc->lines, sizeof(char *) * new_capacity);
-    if (!new_lines) {
-        fprintf(stderr, "Error: out of memory while growing document.\n");
-        return; /* keep old array intact; caller's insert will just fail safely */
+
+    char **temp = realloc(
+        doc->lines,
+        new_capacity * sizeof(char *)
+    );
+
+    if (temp == NULL) {
+        printf("Error: Unable to increase document capacity.\n");
+        return 0;
     }
-    doc->lines = new_lines;
+
+    doc->lines = temp;
     doc->capacity = new_capacity;
+
+    return 1;
 }
 
-/* ---------- Core features ---------- */
 
-/* Insert `text` at 1-based position `line_num`, shifting later lines down.
- * Valid positions are 1..count+1 (count+1 means "append at end"). */
-void doc_insert(Document *doc, int line_num, const char *text) {
-    if (line_num < 1 || line_num > doc->count + 1) {
-        printf("Error: line %d is out of range (valid: 1-%d).\n",
-               line_num, doc->count + 1);
+/* ------------------------------------------------------------
+ * CORE FEATURE 1: Insert a line
+ * ------------------------------------------------------------ */
+
+void insert_line(Document *doc, int line_number, const char *text)
+{
+    int index;
+    int i;
+    char *new_line;
+
+    /*
+     * Valid insertion positions are:
+     * 1 through count + 1
+     *
+     * count + 1 means inserting at the end.
+     */
+    if (line_number < 1 || line_number > doc->count + 1) {
+        printf(
+            "Error: Invalid line number. "
+            "Valid range is 1-%d.\n",
+            doc->count + 1
+        );
         return;
     }
 
+    /* Grow the array if necessary */
     if (doc->count == doc->capacity) {
-        doc_grow(doc);
-        if (doc->count == doc->capacity) return; /* grow failed */
+        if (!grow_document(doc)) {
+            return;
+        }
     }
 
-    char *copy = malloc(strlen(text) + 1);
-    if (!copy) {
-        printf("Error: out of memory; could not insert line.\n");
+    /* Allocate memory for the new line */
+    new_line = copy_string(text);
+
+    if (new_line == NULL) {
+        printf("Error: Memory allocation failed.\n");
         return;
     }
-    strcpy(copy, text);
 
-    /* Shift everything from line_num..count down by one slot,
-       working from the back so we don't overwrite data. */
-    int index = line_num - 1; /* convert to 0-based array index */
-    for (int i = doc->count; i > index; i--) {
+    index = line_number - 1;
+
+    /*
+     * Shift existing lines one position to the right.
+     * Start from the end to avoid overwriting data.
+     */
+    for (i = doc->count; i > index; i--) {
         doc->lines[i] = doc->lines[i - 1];
     }
-    doc->lines[index] = copy;
+
+    doc->lines[index] = new_line;
     doc->count++;
 
-    printf("Inserted at line %d.\n", line_num);
+    printf("Line inserted successfully.\n");
 }
 
-/* Delete the line at 1-based position `line_num`, shifting later lines up. */
-void doc_delete(Document *doc, int line_num) {
+
+/* ------------------------------------------------------------
+ * CORE FEATURE 2: Delete a line
+ * ------------------------------------------------------------ */
+
+void delete_line(Document *doc, int line_number)
+{
+    int index;
+    int i;
+
     if (doc->count == 0) {
-        printf("Error: document is empty, nothing to delete.\n");
-        return;
-    }
-    if (line_num < 1 || line_num > doc->count) {
-        printf("Error: line %d is out of range (valid: 1-%d).\n",
-               line_num, doc->count);
+        printf("Error: Document is empty.\n");
         return;
     }
 
-    int index = line_num - 1;
+    if (line_number < 1 || line_number > doc->count) {
+        printf(
+            "Error: Invalid line number. "
+            "Valid range is 1-%d.\n",
+            doc->count
+        );
+        return;
+    }
+
+    index = line_number - 1;
+
+    /* Free memory used by the deleted line */
     free(doc->lines[index]);
 
-    for (int i = index; i < doc->count - 1; i++) {
+    /*
+     * Shift all lines after the deleted line
+     * one position to the left.
+     */
+    for (i = index; i < doc->count - 1; i++) {
         doc->lines[i] = doc->lines[i + 1];
     }
+
     doc->count--;
 
-    printf("Deleted line %d.\n", line_num);
+    printf("Line %d deleted successfully.\n", line_number);
 }
 
-/* Print every line with its 1-based line number. */
-void doc_display(const Document *doc) {
+
+/* ------------------------------------------------------------
+ * CORE FEATURE 3: Display document
+ * ------------------------------------------------------------ */
+
+void display_document(const Document *doc)
+{
+    int i;
+
     if (doc->count == 0) {
-        printf("(document is empty)\n");
+        printf("\nDocument is empty.\n");
         return;
     }
-    for (int i = 0; i < doc->count; i++) {
-        printf("%4d: %s\n", i + 1, doc->lines[i]);
+
+    printf("\n========== DOCUMENT ==========\n");
+
+    for (i = 0; i < doc->count; i++) {
+        printf("%3d | %s\n", i + 1, doc->lines[i]);
     }
+
+    printf("==============================\n");
 }
 
-/* Write the document to a plain text file, one line per document line. */
-void doc_save(const Document *doc, const char *filename) {
-    FILE *fp = fopen(filename, "w");
-    if (!fp) {
-        printf("Error: could not open '%s' for writing.\n", filename);
-        return;
+
+/* ------------------------------------------------------------
+ * BONUS FEATURE: Save document
+ * ------------------------------------------------------------ */
+
+int save_document(const Document *doc, const char *filename)
+{
+    FILE *file;
+    int i;
+
+    file = fopen(filename, "w");
+
+    if (file == NULL) {
+        printf("Error: Could not open '%s' for writing.\n", filename);
+        return 0;
     }
-    for (int i = 0; i < doc->count; i++) {
-        fprintf(fp, "%s\n", doc->lines[i]);
+
+    for (i = 0; i < doc->count; i++) {
+        fprintf(file, "%s\n", doc->lines[i]);
     }
-    fclose(fp);
-    printf("Saved %d line(s) to '%s'.\n", doc->count, filename);
+
+    fclose(file);
+
+    printf(
+        "Document saved successfully to '%s'.\n",
+        filename
+    );
+
+    return 1;
 }
 
-/* Load a document from a text file, replacing whatever is currently in memory. */
-void doc_load(Document *doc, const char *filename) {
-    FILE *fp = fopen(filename, "r");
-    if (!fp) {
-        printf("Error: could not open '%s' for reading.\n", filename);
-        return;
-    }
 
-    /* Clear out the existing document first. */
-    for (int i = 0; i < doc->count; i++) free(doc->lines[i]);
-    doc->count = 0;
+/* ------------------------------------------------------------
+ * BONUS FEATURE: Load document
+ * ------------------------------------------------------------ */
 
-    char buffer[MAX_INPUT_LEN];
+int load_document(Document *doc, const char *filename)
+{
+    FILE *file;
+    char buffer[MAX_INPUT];
     int loaded = 0;
-    while (fgets(buffer, sizeof(buffer), fp)) {
-        /* Strip trailing newline, if present. */
-        size_t len = strlen(buffer);
-        if (len > 0 && buffer[len - 1] == '\n') buffer[len - 1] = '\0';
+
+    file = fopen(filename, "r");
+
+    if (file == NULL) {
+        printf("Error: Could not open '%s' for reading.\n", filename);
+        return 0;
+    }
+
+    /*
+     * First clear the existing document.
+     */
+    while (doc->count > 0) {
+        free(doc->lines[doc->count - 1]);
+        doc->count--;
+    }
+
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+
+        remove_newline(buffer);
+
+        /*
+         * If the line is too long for the input buffer,
+         * the remaining part will be read separately.
+         * For this small editor, the maximum line size is
+         * intentionally limited.
+         */
 
         if (doc->count == doc->capacity) {
-            doc_grow(doc);
-            if (doc->count == doc->capacity) break; /* grow failed; stop loading */
+            if (!grow_document(doc)) {
+                fclose(file);
+                return 0;
+            }
         }
-        char *copy = malloc(strlen(buffer) + 1);
-        if (!copy) break;
-        strcpy(copy, buffer);
-        doc->lines[doc->count++] = copy;
+
+        doc->lines[doc->count] = copy_string(buffer);
+
+        if (doc->lines[doc->count] == NULL) {
+            printf("Error: Memory allocation failed.\n");
+            fclose(file);
+            return 0;
+        }
+
+        doc->count++;
         loaded++;
     }
 
-    fclose(fp);
-    printf("Loaded %d line(s) from '%s'.\n", loaded, filename);
+    fclose(file);
+
+    printf(
+        "Loaded %d line(s) from '%s'.\n",
+        loaded,
+        filename
+    );
+
+    return 1;
 }
 
-/* ---------- Bonus features ---------- */
 
-/* Report every line number containing `word` as a substring. */
-void doc_search(const Document *doc, const char *word) {
+/* ------------------------------------------------------------
+ * BONUS FEATURE: Search
+ * ------------------------------------------------------------ */
+
+void search_document(const Document *doc, const char *query)
+{
+    int i;
     int found = 0;
-    for (int i = 0; i < doc->count; i++) {
-        if (strstr(doc->lines[i], word) != NULL) {
-            if (!found) printf("Found on line(s): ");
+
+    if (doc->count == 0) {
+        printf("Document is empty.\n");
+        return;
+    }
+
+    for (i = 0; i < doc->count; i++) {
+
+        if (strstr(doc->lines[i], query) != NULL) {
+
+            if (!found) {
+                printf("Found on line(s): ");
+            }
+
             printf("%d ", i + 1);
             found = 1;
         }
     }
-    if (found) printf("\n");
-    else printf("'%s' not found in document.\n", word);
+
+    if (found) {
+        printf("\n");
+    } else {
+        printf(
+            "No line contains \"%s\".\n",
+            query
+        );
+    }
 }
 
-/* Report line count and total word count. */
-void doc_count(const Document *doc) {
-    int word_total = 0;
-    for (int i = 0; i < doc->count; i++) {
-        /* Count words by counting whitespace-separated tokens. */
-        int in_word = 0;
-        for (const char *p = doc->lines[i]; *p; p++) {
-            if (*p == ' ' || *p == '\t') {
-                in_word = 0;
-            } else if (!in_word) {
-                in_word = 1;
-                word_total++;
+
+/* ------------------------------------------------------------
+ * BONUS FEATURE: Line count and word count
+ * ------------------------------------------------------------ */
+
+void document_statistics(const Document *doc)
+{
+    int i;
+    int words = 0;
+
+    for (i = 0; i < doc->count; i++) {
+
+        int inside_word = 0;
+        const char *p = doc->lines[i];
+
+        while (*p != '\0') {
+
+            if (isspace((unsigned char)*p)) {
+                inside_word = 0;
             }
+            else if (!inside_word) {
+                inside_word = 1;
+                words++;
+            }
+
+            p++;
         }
     }
-    printf("Lines: %d, Words: %d\n", doc->count, word_total);
+
+    printf("\nDocument Statistics\n");
+    printf("-------------------\n");
+    printf("Lines : %d\n", doc->count);
+    printf("Words : %d\n", words);
 }
 
-/* ---------- Help text ---------- */
 
-void print_help(void) {
+/* ------------------------------------------------------------
+ * HELP
+ * ------------------------------------------------------------ */
+
+void display_help(void)
+{
     printf(
-        "Commands:\n"
-        "  insert <line#> <text>   Insert text at the given line number\n"
-        "  delete <line#>          Delete the given line number\n"
-        "  display                 Show the whole document\n"
-        "  save <filename>         Save the document to a text file\n"
-        "  load <filename>         Load a document from a text file\n"
-        "  search <word>           Find which line(s) contain a word\n"
-        "  count                   Show line and word counts\n"
-        "  help                    Show this message\n"
-        "  quit                    Exit the editor\n"
+        "\n============== HELP ==============\n"
+        "\n"
+        "insert <line> <text>\n"
+        "    Insert a new line at the given line number.\n"
+        "    Example: insert 1 Hello World\n"
+        "\n"
+        "delete <line>\n"
+        "    Delete the specified line.\n"
+        "    Example: delete 2\n"
+        "\n"
+        "display\n"
+        "    Display all lines with line numbers.\n"
+        "    Example: display\n"
+        "\n"
+        "save <filename>\n"
+        "    Save the document to a text file.\n"
+        "    Example: save document.txt\n"
+        "\n"
+        "load <filename>\n"
+        "    Load a text file into the editor.\n"
+        "    Example: load document.txt\n"
+        "\n"
+        "search <word or phrase>\n"
+        "    Search for a word or phrase in the document.\n"
+        "    Example: search hello\n"
+        "\n"
+        "count\n"
+        "    Display the number of lines and words.\n"
+        "    Example: count\n"
+        "\n"
+        "help\n"
+        "    Display this help information.\n"
+        "\n"
+        "quit\n"
+        "    Exit the editor.\n"
+        "\n"
+        "==================================\n"
     );
 }
 
-/* ---------- Command loop ---------- */
 
-int main(void) {
+/* ------------------------------------------------------------
+ * MAIN COMMAND LOOP
+ * ------------------------------------------------------------ */
+
+int main(int argc, char *argv[])
+{
     Document doc;
-    doc_init(&doc);
+    char input[MAX_INPUT];
 
-    char input[MAX_INPUT_LEN];
+    initialize_document(&doc);
 
-    printf("Simple Line Editor. Type 'help' for a list of commands.\n");
+    printf("\n=====================================\n");
+    printf("       SIMPLE LINE EDITOR\n");
+    printf("=====================================\n");
+
+    /*
+     * Optional startup file.
+     *
+     * Usage:
+     *     ./editor document.txt
+     */
+    if (argc >= 2) {
+        load_document(&doc, argv[1]);
+    }
+
+    printf("Type 'help' to see available commands.\n");
 
     while (1) {
-        printf("> ");
-        if (!fgets(input, sizeof(input), stdin)) break; /* EOF (e.g. Ctrl+D) */
 
-        /* Strip trailing newline. */
-        size_t len = strlen(input);
-        if (len > 0 && input[len - 1] == '\n') input[len - 1] = '\0';
+        char command[32];
 
-        /* Skip blank lines. */
-        if (strlen(input) == 0) continue;
+        printf("\n> ");
 
-        char command[32] = {0};
-        int consumed = 0;
-        /* %n captures how many characters were consumed by the match so far,
-           which lets us grab "the rest of the line" as one argument. */
-        if (sscanf(input, "%31s%n", command, &consumed) != 1) continue;
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            break;
+        }
+
+        remove_newline(input);
+
+        /* Ignore empty input */
+        if (strlen(input) == 0) {
+            continue;
+        }
+
+        /*
+         * Read the first word as the command.
+         */
+        if (sscanf(input, "%31s", command) != 1) {
+            continue;
+        }
+
+
+        /* ----------------------------------------------------
+         * INSERT
+         * ---------------------------------------------------- */
 
         if (strcmp(command, "insert") == 0) {
-            int line_num;
-            int arg_consumed = 0;
-            if (sscanf(input + consumed, " %d%n", &line_num, &arg_consumed) != 1) {
-                printf("Usage: insert <line#> <text>\n");
+
+            int line_number;
+            char *text;
+
+            /*
+             * Find the line number after "insert".
+             */
+            text = input + strlen(command);
+
+            while (*text == ' ') {
+                text++;
+            }
+
+            if (sscanf(text, "%d", &line_number) != 1) {
+                printf(
+                    "Usage: insert <line> <text>\n"
+                );
                 continue;
             }
-            const char *text = input + consumed + arg_consumed;
-            while (*text == ' ') text++; /* skip leading spaces before the text */
+
+            /*
+             * Move pointer past the line number.
+             */
+            while (*text != '\0' && !isspace((unsigned char)*text)) {
+                text++;
+            }
+
+            while (*text == ' ') {
+                text++;
+            }
+
             if (*text == '\0') {
-                printf("Usage: insert <line#> <text>\n");
+                printf(
+                    "Usage: insert <line> <text>\n"
+                );
                 continue;
             }
-            doc_insert(&doc, line_num, text);
 
-        } else if (strcmp(command, "delete") == 0) {
-            int line_num;
-            if (sscanf(input + consumed, " %d", &line_num) != 1) {
-                printf("Usage: delete <line#>\n");
+            insert_line(&doc, line_number, text);
+        }
+
+
+        /* ----------------------------------------------------
+         * DELETE
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "delete") == 0) {
+
+            int line_number;
+
+            if (sscanf(
+                    input + strlen(command),
+                    "%d",
+                    &line_number
+                ) != 1) {
+
+                printf(
+                    "Usage: delete <line>\n"
+                );
+
                 continue;
             }
-            doc_delete(&doc, line_num);
 
-        } else if (strcmp(command, "display") == 0) {
-            doc_display(&doc);
+            delete_line(&doc, line_number);
+        }
 
-        } else if (strcmp(command, "save") == 0) {
-            char filename[256];
-            if (sscanf(input + consumed, " %255s", filename) != 1) {
-                printf("Usage: save <filename>\n");
+
+        /* ----------------------------------------------------
+         * DISPLAY
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "display") == 0) {
+
+            display_document(&doc);
+        }
+
+
+        /* ----------------------------------------------------
+         * SAVE
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "save") == 0) {
+
+            char filename[MAX_FILENAME];
+
+            if (sscanf(
+                    input + strlen(command),
+                    "%255s",
+                    filename
+                ) != 1) {
+
+                printf(
+                    "Usage: save <filename>\n"
+                );
+
                 continue;
             }
-            doc_save(&doc, filename);
 
-        } else if (strcmp(command, "load") == 0) {
-            char filename[256];
-            if (sscanf(input + consumed, " %255s", filename) != 1) {
-                printf("Usage: load <filename>\n");
+            save_document(&doc, filename);
+        }
+
+
+        /* ----------------------------------------------------
+         * LOAD
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "load") == 0) {
+
+            char filename[MAX_FILENAME];
+
+            if (sscanf(
+                    input + strlen(command),
+                    "%255s",
+                    filename
+                ) != 1) {
+
+                printf(
+                    "Usage: load <filename>\n"
+                );
+
                 continue;
             }
-            doc_load(&doc, filename);
 
-        } else if (strcmp(command, "search") == 0) {
-            const char *word = input + consumed;
-            while (*word == ' ') word++;
-            if (*word == '\0') {
-                printf("Usage: search <word>\n");
+            load_document(&doc, filename);
+        }
+
+
+        /* ----------------------------------------------------
+         * SEARCH
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "search") == 0) {
+
+            char *query = input + strlen(command);
+
+            while (*query == ' ') {
+                query++;
+            }
+
+            if (*query == '\0') {
+                printf(
+                    "Usage: search <word or phrase>\n"
+                );
+
                 continue;
             }
-            doc_search(&doc, word);
 
-        } else if (strcmp(command, "count") == 0) {
-            doc_count(&doc);
+            search_document(&doc, query);
+        }
 
-        } else if (strcmp(command, "help") == 0) {
-            print_help();
 
-        } else if (strcmp(command, "quit") == 0 || strcmp(command, "exit") == 0) {
+        /* ----------------------------------------------------
+         * COUNT
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "count") == 0) {
+
+            document_statistics(&doc);
+        }
+
+
+        /* ----------------------------------------------------
+         * HELP
+         * ---------------------------------------------------- */
+
+        else if (strcmp(command, "help") == 0) {
+
+            display_help();
+        }
+
+
+        /* ----------------------------------------------------
+         * QUIT
+         * ---------------------------------------------------- */
+
+        else if (
+            strcmp(command, "quit") == 0 ||
+            strcmp(command, "exit") == 0
+        ) {
+
             break;
+        }
 
-        } else {
-            printf("Unknown command: '%s'. Type 'help' for a list.\n", command);
+
+        /* ----------------------------------------------------
+         * UNKNOWN COMMAND
+         * ---------------------------------------------------- */
+
+        else {
+
+            printf(
+                "Unknown command: %s\n",
+                command
+            );
+
+            printf(
+                "Type 'help' for available commands.\n"
+            );
         }
     }
 
-    doc_free(&doc);
-    printf("Goodbye.\n");
+    free_document(&doc);
+
+    printf("\nGoodbye!\n");
+
     return 0;
 }

@@ -1,0 +1,103 @@
+SIMPLE LINE EDITOR - HELP
+
+DESCRIPTION
+
+This is a command-line line editor written in C. The editor allows the
+user to insert, delete, and display lines of a text document.
+
+COMMANDS
+
+1. INSERT
+
+Purpose: Insert a new line at a specified line number.
+
+Syntax: insert
+
+Example: insert 1 Hello World
+
+Result: A new line containing “Hello World” is inserted at line 1.
+
+2. DELETE
+
+Purpose: Delete an existing line from the document.
+
+Syntax: delete
+
+Example: delete 2
+
+Result: Line 2 is removed from the document and the lines below it are
+shifted upward.
+
+3. DISPLAY
+
+Purpose: Display all lines currently stored in the document with their
+line numbers.
+
+Syntax: display
+
+Example: display
+
+Example Output: 1: Hello World 2: Welcome to C 3: Simple Line Editor
+
+4. HELP
+
+Purpose: Display the list of available commands.
+
+Syntax: help
+
+Example: help
+
+5. EXIT
+
+Purpose: Exit the line editor.
+
+Syntax: exit
+
+Example: exit
+
+ERROR HANDLING
+
+The editor handles common invalid inputs, including:
+
+-   Invalid line numbers
+-   Attempting to delete a line that does not exist
+-   Invalid commands
+-   Incorrect command arguments
+-   Displaying an empty document
+
+For invalid input, the editor displays an appropriate error message.
+
+COMPILATION
+
+Compile the program using GCC:
+
+gcc -Wall -Wextra -std=c11 src/main.c -o editor
+
+RUNNING
+
+Linux/macOS: ./editor
+
+Windows: ..exe
+
+EXAMPLE SESSION
+
+  insert 1 Hello World Line inserted successfully.
+
+  insert 2 Welcome to C Line inserted successfully.
+
+  display
+
+—– Document —– 1: Hello World 2: Welcome to C ——————–
+
+  delete 1 Line deleted successfully.
+
+  display
+
+—– Document —– 1: Welcome to C ——————–
+
+  exit Exiting editor…
+
+TEAM MEMBERS
+
+Insha Ahmed - R25EJ043 Krithik D Shetty - R25EJ056 J Karthik Raj -
+R25EJ045

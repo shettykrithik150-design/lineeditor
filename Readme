@@ -33,6 +33,14 @@ The project focuses on applying fundamental C programming concepts such as:
 - Command-line input handling
 
 ---
+HOW TO RUN THE CODE:
+1.
+git clone https://github.com/shettykrithik150-design/lineeditor.git
+cd lineeditor
+2.
+gcc -Wall -Wextra -std=c11 .\src\main.c -o editor.exe
+3.
+.\editor.exe
 
 ## ✨ Features
 

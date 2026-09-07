@@ -1,0 +1,44 @@
+# 📝 Simple Line Editor in C
+
+> A lightweight command-line text editor built in C for creating, viewing,
+> and modifying a document one line at a time.
+
+---
+
+## 👥 Team Members
+
+| Name | Roll Number |
+|------|-------------|
+| J Karthik Raj | R25EJ045 |
+| Insha Ahmed | R25EJ043 |
+| Krithik D Shetty | R25EJ056 |
+
+---
+
+## 📌 About the Project
+
+A **line editor** is a simple text editor that works with one line at a
+time using commands and line numbers.
+
+This project implements a command-line line editor in **C** that allows
+users to create and modify a small text document directly from the terminal.
+
+The project focuses on applying fundamental C programming concepts such as:
+
+- Data structures
+- Functions
+- Strings
+- Dynamic memory allocation
+- Arrays and pointers
+- Command-line input handling
+
+---
+
+## ✨ Features
+
+### 🔴 Insert a Line
+
+Insert text at any valid line number.
+
+```text
+insert <line_number> <text>
